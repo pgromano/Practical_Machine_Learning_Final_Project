@@ -1,0 +1,108 @@
+---
+title: "R Prediction Assignment"
+author: "P. G. Romano"
+---
+
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+model_rf = readRDS(file='Data/RF.rds')
+```
+
+The goal of this project is to predict the manner in which subjects did their exercise, described by the "classe" variable in the training set. Below, the report describes how the model was built, cross validated, the expected out of sample error, and a detailed explanation of choices made. The report concludes with predictions on 20 different test cases.
+
+# Data Processing
+
+The data for analysis, should be found in the `Data` folder, including datasets for [training][train_download] and [testing][test_download]. These are collected from the [Human Activity Recognition Project][1]. The "*classe*" or activity classes describe a specific motion during bicep curls and are labeled as
+
+* Class A: Exactly according to the specification
+* Class B: Throwing the elbows to the front
+* Class C: Lifting the dumbbell only halfway
+* Class D: Lowering the dumbbell only halfway
+* Class E: Throwing the hips to the front
+
+For the purpose of analyzing the error within our models, we will create our own training and test set. The training data, given by the file `pml-training.csv` will be referred to as the *tracker data*, and the testing set given by file `pml-testing.csv` will be referred to as our "*quiz*" set (as these will be used to answer the final quiz!).
+
+```{r}
+tracker_data = read.csv('Data/pml-training.csv')
+quiz = read.csv('Data/pml-testing.csv')
+```
+
+As there are several variables, not all of which pertain to modeling the motion for the activity classes, we will analyze only the accelerometer features. Additionally, as we are not interested in variance within total acceleration, we will discard these features as well.
+
+```{r}
+# Select all accelerometer features
+selected_features = names(tracker_data)[grepl('accel', names(tracker_data))]
+selected_features = selected_features[-grep('var', selected_features)]
+
+# Slice quiz data
+quiz = subset(quiz, select=selected_features)
+
+# Slice tracker data, and rename levels 
+tracker_data = subset(tracker_data, select=c(selected_features, 'classe'))
+```
+
+# Required packages
+
+We will be modelling these activity types by creating a random forest estimators from the `caret` package. Below, are the necessary packages available through the `CRAN` repo.
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+library(caret)
+```
+
+# Partitioning Training/Test Sets
+
+While using the full tracker dataset provided in the `pml-training.csv` might give the most accurate prediction for the *quiz* set from `pml-testing.csv`, it prevents us from evaluating the errors within our model. To estimate the in and out-of-sample error, we must partition our tracker dataset. To estimate the amount of out-of-sample error we will partition the training set and use cross-validation to evaluate the error in how general our predictions will be. We'll first begin by creating predictions for the training and testing sets.
+
+```{r}
+set.seed(42)
+inTrain = createDataPartition(y=tracker_data$classe, p=0.7, list=FALSE)
+training = tracker_data[inTrain, ]
+testing = tracker_data[-inTrain, ]
+```
+
+# Random Forest Model
+
+Our estimator will use the random  **Random Forest** (`rf`) method for prediction. We'll train our forest on the training data, but implemented with a repeated cross validation scheme with the `repeatedcv` method. Here our data will be split into 10 splits by k-folds, and the cross validation is repeated 3 times using the `number` and `repeat` arguments respectively. 
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+controls <- trainControl(method="repeatedcv", number=10, repeats=3, preProc=c("center","scale"))
+
+set.seed(42)
+model_rf = train(classe~., data=training, trControl=controls, method='rf')
+```
+
+Let's explore the accuracy in our model prediction over iteration and per random forest.
+
+```{r, eval=FALSE, echo=FALSE}
+plot(model_rf$finalModel)
+```
+![figure](figure.jpeg)
+
+### In and Out of Sample Error
+
+Now that we have our model trained we can estimate the in and out of sample errors. 
+
+```{r}
+# Individual model predictions for training set
+pred_train_rf = predict(model_rf, training)
+
+# Individual model predictions for test set
+pred_test_rf = predict(model_rf, testing)
+
+print('Random Forest')
+print(c(sum(training$classe == pred_train_rf) / length(training$classe), 
+        sum(testing$classe == pred_test_rf) / length(testing$classe)))
+```
+
+# Predicting the Quiz set
+
+Finally, let's conclude by predicting the *quiz* set, which we will submit as our final quiz for the course.
+
+```{r}
+pred_quiz_rf = predict(model_rf, quiz)
+print(pred_quiz_rf)
+```
+
+
+[1]: http://groupware.les.inf.puc-rio.br/har
+[train_download]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+[test_download]: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
